@@ -1,4 +1,6 @@
 #include "types.h"
+#include "types.h"
+#include "pstat.h"
 #include "param.h"
 #include "memlayout.h"
 #include "riscv.h"
@@ -413,6 +415,76 @@ kwait(uint64 addr)
 
     // Wait for a child to exit.
     sleep_prepare(p); //DOC: wait-sleep
+    release(&wait_lock);
+    sleep();
+    acquire(&wait_lock);
+  }
+}
+
+// Wait for a child and return its exit status and CPU usage.
+int
+kwait2(uint64 status_addr, uint64 usage_addr)
+{
+  struct proc *pp;
+  struct proc *p = myproc();
+  int havekids, pid;
+
+  // Protect parent-child relationships while searching.
+  acquire(&wait_lock);
+
+  for (;;) {
+    havekids = 0;
+
+    for (pp = proc; pp < &proc[NPROC]; pp++) {
+      if (pp->parent == p) {
+        acquire(&pp->lock);
+        havekids = 1;
+
+        if (pp->state == ZOMBIE) {
+          pid = pp->pid;
+
+          // Capture CPU usage before freeing the child.
+          struct rusage usage;
+          usage.cputime = pp->cputime;
+
+          // Copy exit status into the parent's user memory.
+          if (status_addr != 0 &&
+              copyout(p->pagetable, p->sz, status_addr,
+                      (char *)&pp->xstate, sizeof(pp->xstate)) < 0) {
+            release(&pp->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          // Copy resource usage into the parent's user memory.
+          if (usage_addr != 0 &&
+              copyout(p->pagetable, p->sz, usage_addr,
+                      (char *)&usage, sizeof(usage)) < 0) {
+            release(&pp->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          // Reap the child after all requested copies succeed.
+          pp->parent = 0;
+          freeproc(pp);
+          release(&pp->lock);
+          release(&wait_lock);
+          return pid;
+        }
+
+        release(&pp->lock);
+      }
+    }
+
+    // Stop if there are no children or the parent was killed.
+    if (!havekids || killed(p)) {
+      release(&wait_lock);
+      return -1;
+    }
+
+    // Prepare before unlocking so a child's wakeup is not lost.
+    sleep_prepare(p);
     release(&wait_lock);
     sleep();
     acquire(&wait_lock);

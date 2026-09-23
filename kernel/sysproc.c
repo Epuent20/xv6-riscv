@@ -36,6 +36,21 @@ sys_wait(void)
   return kwait(p);
 }
 
+// Handle wait2(status, usage) from a user program.
+uint64
+sys_wait2(void)
+{
+  uint64 status_addr;
+  uint64 usage_addr;
+
+  // Get the user addresses where the results should be stored.
+  argaddr(0, &status_addr);
+  argaddr(1, &usage_addr);
+
+  // Wait for a child and copy its status and CPU usage.
+  return kwait2(status_addr, usage_addr);
+}
+
 uint64
 sys_sbrk(void)
 {

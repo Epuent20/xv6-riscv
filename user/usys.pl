@@ -24,6 +24,8 @@ sub entry {
 entry("fork");
 entry("exit");
 entry("wait");
+#added
+entry("wait2");
 entry("pipe");
 entry("read");
 entry("write");
