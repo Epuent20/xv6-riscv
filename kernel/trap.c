@@ -82,8 +82,16 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if (which_dev == 2)
+  //modified
+  // Charge one CPU tick to the process interrupted in user mode.
+  if (which_dev == 2) {
+    acquire(&p->lock);
+    p->cputime++;
+    release(&p->lock);
+
+    // yield() acquires p->lock itself, so release it before calling.
     yield();
+}
 
   prepare_return();
 
@@ -154,8 +162,18 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-  if (which_dev == 2 && myproc() != 0)
-    yield();
+  // Count kernel-mode CPU time only when a process is running.
+// Timer interrupts while the CPU is idle are not charged to a process.
+if (which_dev == 2 && myproc() != 0) {
+  struct proc *p = myproc();
+
+  acquire(&p->lock);
+  p->cputime++;
+  release(&p->lock);
+
+  // Let another runnable process use the CPU after this timer tick.
+  yield();
+}
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.
