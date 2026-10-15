@@ -9,6 +9,8 @@ int exit(int) __attribute__((noreturn));
 int wait(int *);
 int wait2(int *, struct rusage *);
 int getprocs(struct pstat *); //PA2 task 1
+int getpriority(void);
+int setpriority(int priority);//pa2 task2
 int pipe(int *);
 int write(int, const void *, int);
 int read(int, void *, int);

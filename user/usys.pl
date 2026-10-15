@@ -28,6 +28,8 @@ entry("wait");
 entry("wait2");
 entry("getprocs");
 #added
+entry("getpriority");
+entry("setpriority");
 entry("pipe");
 entry("read");
 entry("write");

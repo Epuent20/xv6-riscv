@@ -62,6 +62,38 @@ sys_getprocs(void)
   return kgetprocs(addr);
 }
 
+// Read the calling process's base priority.
+uint64
+sys_getpriority(void)
+{
+  struct proc *p = myproc();
+  int priority;
+
+  acquire(&p->lock);
+  priority = p->priority;
+  release(&p->lock);
+
+  return priority;
+}
+
+// Reject invalid values without changing the process's priority.
+uint64
+sys_setpriority(void)
+{
+  struct proc *p = myproc();
+  int priority;
+
+  argint(0, &priority);
+  if(priority < 0 || priority > 49)
+    return -1;
+
+  acquire(&p->lock);
+  p->priority = priority;
+  release(&p->lock);
+
+  return 0;
+}
+
 uint64
 sys_sbrk(void)
 {

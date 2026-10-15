@@ -127,7 +127,7 @@ found:
   p->pid = allocpid();
   p->state = USED;
   p->cputime = 0;  // cpu time initialized to 0
-
+  p->priority = 0;// added
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -262,13 +262,21 @@ int
 kfork(void)
 {
   int i, pid;
+  int inherited_priority;
   struct proc *np;
   struct proc *p = myproc();
+
+  acquire(&p->lock);
+  inherited_priority = p->priority;
+  release(&p->lock);
 
   // Allocate process.
   if ((np = allocproc()) == 0) {
     return -1;
   }
+
+  np->priority = inherited_priority; //task 2 pa2
+
 
   // Copy user memory from parent to child.
   if (uvmcopy(p->pagetable, np->pagetable, p->sz) < 0) {
@@ -520,6 +528,7 @@ int kgetprocs(uint64 addr)
     info.state = p->state;
     info.size = p->sz;
     info.ppid = p->parent ? p->parent->pid : 0;
+    info.priority = p->priority;
     safestrcpy(info.name, p->name, sizeof(info.name));
 
     release(&p->lock);
