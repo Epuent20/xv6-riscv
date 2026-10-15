@@ -51,6 +51,17 @@ sys_wait2(void)
   return kwait2(status_addr, usage_addr);
 }
 
+// Pass the user's output-array address to the process-table code.
+//getprocs task 1 PA2
+uint64
+sys_getprocs(void)
+{
+  uint64 addr;
+
+  argaddr(0, &addr);
+  return kgetprocs(addr);
+}
+
 uint64
 sys_sbrk(void)
 {

@@ -1,5 +1,6 @@
 #define SBRK_ERROR ((char *)-1)
 struct rusage;
+struct pstat;
 struct stat;
 
 // system calls
@@ -7,6 +8,7 @@ int fork(void);
 int exit(int) __attribute__((noreturn));
 int wait(int *);
 int wait2(int *, struct rusage *);
+int getprocs(struct pstat *); //PA2 task 1
 int pipe(int *);
 int write(int, const void *, int);
 int read(int, void *, int);

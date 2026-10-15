@@ -156,6 +156,7 @@ UPROGS=\
 	$U/_matmul\
 	$U/_wait2test\
 	$U/_time\
+	$U/_ps\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

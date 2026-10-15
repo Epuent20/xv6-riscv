@@ -491,6 +491,52 @@ kwait2(uint64 status_addr, uint64 usage_addr)
   }
 }
 
+// Copy one report for each process visible to ps.
+int kgetprocs(uint64 addr)
+{
+  struct proc *caller = myproc();
+  struct proc *p;
+  struct pstat info;
+  int count = 0;
+
+  if(addr == 0)
+    return -1;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    // Clear bytes that the individual fields may not fill.
+    memset(&info, 0, sizeof(info));
+    // Parent relationships require wait_lock before p->lock.
+    acquire(&wait_lock);
+    acquire(&p->lock);
+
+    // These intermediate states are not displayed by ps.
+    if(p->state == UNUSED || p->state == USED){
+      release(&p->lock);
+      release(&wait_lock);
+      continue;
+    }
+
+    info.pid = p->pid;
+    info.state = p->state;
+    info.size = p->sz;
+    info.ppid = p->parent ? p->parent->pid : 0;
+    safestrcpy(info.name, p->name, sizeof(info.name));
+
+    release(&p->lock);
+    release(&wait_lock);
+
+    // Copy the saved report after releasing the kernel locks.
+    uint64 dst = addr + (uint64)count * sizeof(info);
+    if(dst < addr ||
+       copyout(caller->pagetable, caller->sz, dst,
+               (char *)&info, sizeof(info)) < 0)
+      return -1;
+
+    count++;
+  }
+
+  return count;
+}
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
