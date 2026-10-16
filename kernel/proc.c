@@ -28,6 +28,16 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
+// Caller holds p->lock. On this one-CPU build, the lock prevents a timer
+// interrupt while reading ticks. Do not take tickslock here: clockintr()
+// calls wakeup() while already holding it.
+static void
+make_runnable(struct proc *p)
+{
+  p->readytime = ticks;
+  p->state = RUNNABLE;
+}
+
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
@@ -128,6 +138,7 @@ found:
   p->state = USED;
   p->cputime = 0;  // cpu time initialized to 0
   p->priority = 0;// added
+  p->readytime = 0;
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -228,7 +239,7 @@ userinit(void)
 
   p->cwd = namei("/");
 
-  p->state = RUNNABLE;
+  make_runnable(p);
 
   release(&p->lock);
 }
@@ -309,7 +320,7 @@ kfork(void)
   release(&wait_lock);
 
   acquire(&np->lock);
-  np->state = RUNNABLE;
+  make_runnable(np);
   release(&np->lock);
 
   return pid;
@@ -529,6 +540,7 @@ int kgetprocs(uint64 addr)
     info.size = p->sz;
     info.ppid = p->parent ? p->parent->pid : 0;
     info.priority = p->priority;
+    info.readytime = p->readytime;
     safestrcpy(info.name, p->name, sizeof(info.name));
 
     release(&p->lock);
@@ -630,7 +642,7 @@ yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
-  p->state = RUNNABLE;
+  make_runnable(p);
   sched();
   release(&p->lock);
 }
@@ -713,10 +725,9 @@ wakeup(void *chan)
       // signal that the wakeup happened by clearing p->chan.
       p->chan = 0;
 
-      // If this waiting process has gotten so far as to actually
-      // go to sleep, also set it back to RUNNING.
+      // If this waiting process actually slept, make it RUNNABLE again.
       if (p->state == SLEEPING) {
-        p->state = RUNNABLE;
+        make_runnable(p);
       }
     }
     release(&p->lock);
@@ -737,7 +748,7 @@ kkill(int pid)
       p->killed = 1;
       if (p->state == SLEEPING) {
         // Wake process from sleep().
-        p->state = RUNNABLE;
+        make_runnable(p);
       }
       release(&p->lock);
       return 0;

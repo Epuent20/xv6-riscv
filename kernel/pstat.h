@@ -16,6 +16,7 @@ struct pstat {
   uint64 size;
   int ppid;
   int priority;  // Base priority, not the later aging-adjusted value.
+  uint readytime;
   char name[16];
 };
 
