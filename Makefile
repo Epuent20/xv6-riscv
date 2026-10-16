@@ -157,6 +157,8 @@ UPROGS=\
 	$U/_wait2test\
 	$U/_time\
 	$U/_ps\
+	$U/_pexec\
+	$U/_schedtest\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
