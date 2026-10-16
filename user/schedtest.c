@@ -2,7 +2,7 @@
 #include "user/user.h"
 
 #define NCHILD 2
-#define WORK_ITERATIONS 200000000
+#define WORK_ITERATIONS 1000000000
 
 struct result {
   int pid;
@@ -43,7 +43,7 @@ main(int argc, char *argv[])
   int ready[2];
   int report[2];
   int start[NCHILD][2];
-  int priorities[NCHILD] = {0, 20};
+  int priorities[NCHILD] = {0, 1};
   struct result results[NCHILD];
   char token = 'R';
   int release_tick;

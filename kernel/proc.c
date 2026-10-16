@@ -602,32 +602,40 @@ scheduler(void)
 
    #elif SCHED_POLICY == SCHED_PRIORITY
     struct proc *best = 0;
-    int best_priority = -1;
+    int best_effective = -1;
     uint best_age = 0;
     int best_pid = 0;
     uint now = ticks;
 
-    // On this one-CPU build, interrupts are off during the scan. Examine
-    // one process at a time without holding multiple process locks.
+    // On this one-CPU build, interrupts are off during the scan.
+    // Hold only one process lock at a time.
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if (p->state == RUNNABLE) {
         uint age = now - p->readytime;
+        int effective = p->priority;
+
+        if (SCHED_AGING) {
+          // Clamp before adding, so even a very long wait cannot overflow.
+          if (age >= (uint)(MAXEFFPRIORITY - effective))
+            effective = MAXEFFPRIORITY;
+          else
+            effective += (int)age;
+        }
 
         if (best == 0 ||
-            p->priority > best_priority ||
-            (p->priority == best_priority &&
+            effective > best_effective ||
+            (effective == best_effective &&
              (age > best_age ||
               (age == best_age && p->pid < best_pid)))) {
           best = p;
-          best_priority = p->priority;
+          best_effective = effective;
           best_age = age;
           best_pid = p->pid;
         }
       }
       release(&p->lock);
     }
-
     if (best != 0) {
       acquire(&best->lock);
       if (best->state == RUNNABLE) {

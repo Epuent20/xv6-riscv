@@ -16,3 +16,6 @@
 #define SCHED_RR 0
 #define SCHED_PRIORITY 1
 #define SCHED_POLICY SCHED_PRIORITY
+// Compare priority scheduling with and without runnable-wait aging.
+#define SCHED_AGING 1
+#define MAXEFFPRIORITY 99
