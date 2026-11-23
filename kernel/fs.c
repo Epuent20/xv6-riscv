@@ -180,12 +180,29 @@ struct {
   struct inode inode[NINODE];
 } itable;
 
+// Outer lock shared by writes and filesystem namespace mutations.
+// Acquire it before begin_op() and before taking any inode lock.
+static struct sleeplock fs_mutation_lock;
+
+void
+fs_mutation_acquire(void)
+{
+  acquiresleep(&fs_mutation_lock);
+}
+
+void
+fs_mutation_release(void)
+{
+  releasesleep(&fs_mutation_lock);
+}
+
 void
 iinit()
 {
   int i = 0;
 
   initlock(&itable.lock, "itable");
+  initsleeplock(&fs_mutation_lock, "fs mutation");
   for (i = 0; i < NINODE; i++) {
     initsleeplock(&itable.inode[i].lock, "inode");
   }
