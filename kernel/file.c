@@ -159,8 +159,11 @@ filewrite(struct file *f, uint64 addr, int n)
 
       begin_op();
       ilock(f->ip);
-      if ((r = writei(f->ip, 1, addr + i, f->off, n1)) > 0)
-        f->off += r;
+
+      // Read EOF under the same lock that protects the write.
+      uint off = f->append ? f->ip->size : f->off;
+      if ((r = writei(f->ip, 1, addr + i, off, n1)) > 0)
+        f->off = off + r;
       iunlock(f->ip);
       end_op();
 
