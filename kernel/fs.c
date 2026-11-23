@@ -452,8 +452,9 @@ bmap(struct inode *ip, uint bn)
   bn -= NDIRECT;
 
   if (bn < NINDIRECT) {
-    // Load indirect block, allocating if necessary.
-    if ((addr = ip->addrs[NDIRECT]) == 0) {
+    // Remember a newly allocated indirect block until it has an entry.
+    uint indirect = ip->addrs[NDIRECT];
+    if ((addr = indirect) == 0) {
       addr = balloc(ip->dev);
       if (addr == 0)
         return 0;
@@ -469,6 +470,10 @@ bmap(struct inode *ip, uint bn)
       }
     }
     brelse(bp);
+    if (addr == 0 && indirect == 0) {
+      bfree(ip->dev, ip->addrs[NDIRECT]);
+      ip->addrs[NDIRECT] = 0;
+    }
     return addr;
   }
 

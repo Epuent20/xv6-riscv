@@ -129,9 +129,11 @@ sys_link(void)
   if (argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
     return -1;
 
+  fs_mutation_acquire();
   begin_op();
   if ((ip = namei(old)) == 0) {
     end_op();
+    fs_mutation_release();
     return -1;
   }
 
@@ -139,12 +141,14 @@ sys_link(void)
   if (ip->type == T_DIR) {
     iunlockput(ip);
     end_op();
+    fs_mutation_release();
     return -1;
   }
 
   if (ip->nlink >= NLINK_MAX) {
     iunlockput(ip);
     end_op();
+    fs_mutation_release();
     return -1;
   }
 
@@ -170,6 +174,7 @@ sys_link(void)
   iput(ip);
 
   end_op();
+  fs_mutation_release();
 
   return 0;
 
@@ -179,6 +184,7 @@ bad:
   iupdate(ip);
   iunlockput(ip);
   end_op();
+  fs_mutation_release();
   return -1;
 }
 
@@ -198,11 +204,150 @@ isdirempty(struct inode *dp)
   return 1;
 }
 
-// Temporary handler until PA5 atomic rename is implemented.
+// Keep the directory topology stable with fs_mutation_acquire() during
+// this walk. Hold at most one inode lock while following "..".
+static int
+renameancestor(struct inode *ancestor, struct inode *dir)
+{
+  if (ancestor->dev != dir->dev)
+    return 0;
+
+  struct inode *ip = idup(dir);
+  while (ip != ancestor && ip->inum != ROOTINO) {
+    ilock(ip);
+    struct inode *parent = dirlookup(ip, "..", 0);
+    iunlockput(ip);
+    if (parent == 0)
+      return 0;
+    ip = parent;
+  }
+  int found = ip == ancestor;
+  iput(ip);
+  return found;
+}
+
+// Rewrite a dirent that is already backed by an allocated block.
+static void
+renamedirent(struct inode *dir, uint off, char *name, uint inum)
+{
+  struct dirent de = {0};
+  if (name)
+    strncpy(de.name, name, DIRSIZ);
+  de.inum = inum;
+  if (writei(dir, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+    panic("rename: write dirent");
+}
+
 uint64
 sys_rename(void)
 {
-  return -1;
+  char old[MAXPATH], new[MAXPATH], oname[DIRSIZ], nname[DIRSIZ];
+  struct inode *odp = 0, *ndp = 0, *ip = 0, *tp = 0;
+  struct inode *first, *second;
+  uint ooff, noff;
+  int result = -1;
+
+  if (argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
+    return -1;
+
+  fs_mutation_acquire();
+  begin_op();
+  odp = nameiparent(old, oname);
+  ndp = nameiparent(new, nname);
+  if (odp == 0 || ndp == 0 || odp->dev != ndp->dev ||
+      namecmp(oname, ".") == 0 || namecmp(oname, "..") == 0 ||
+      namecmp(nname, ".") == 0 || namecmp(nname, "..") == 0)
+    goto done;
+
+  // No namespace writer can change either entry or its offset while
+  // the mutation lock is held, including during the ancestry walks.
+  ilock(odp);
+  ip = dirlookup(odp, oname, &ooff);
+  iunlock(odp);
+  if (ip == 0)
+    goto done;
+
+  ilock(ndp);
+  tp = dirlookup(ndp, nname, &noff);
+  iunlock(ndp);
+  if (ip == tp) {
+    result = 0;
+    goto done;
+  }
+
+  // An inode in either parent's chain must never be locked as a child.
+  // A regular file cannot be found by a walk over directory ancestors.
+  if (renameancestor(ip, ndp) || (tp && renameancestor(tp, odp)))
+    goto done;
+
+  // Lock related parents ancestor first. Order unrelated ones by inum.
+  first = odp;
+  second = ndp;
+  if (odp != ndp &&
+      (renameancestor(ndp, odp) ||
+       (ndp->inum < odp->inum && !renameancestor(odp, ndp)))) {
+    first = ndp;
+    second = odp;
+  }
+
+  ilock(first);
+  if (second != first)
+    ilock(second);
+  ilock(ip);
+  if (tp)
+    ilock(tp);
+
+  int isdir = ip->type == T_DIR;
+  int cross = odp != ndp;
+  if (odp->nlink == 0 || ndp->nlink == 0 ||
+      (tp && (isdir != (tp->type == T_DIR) || (isdir && !isdirempty(tp)))) ||
+      (isdir && cross && tp == 0 && ndp->nlink >= NLINK_MAX))
+    goto unlock;
+
+  // An insertion may allocate space. Finish it before removing old.
+  if (tp == 0) {
+    if (dirlink(ndp, nname, ip->inum) < 0)
+      goto unlock;
+  } else {
+    renamedirent(ndp, noff, nname, ip->inum);
+    tp->nlink--;
+    iupdate(tp);
+  }
+
+  renamedirent(odp, ooff, 0, 0);
+  if (isdir) {
+    if (cross)
+      renamedirent(ip, sizeof(struct dirent), "..", ndp->inum);
+    if (cross || tp) {
+      odp->nlink--;
+      iupdate(odp);
+    }
+    if (cross && tp == 0) {
+      ndp->nlink++;
+      iupdate(ndp);
+    }
+  }
+  result = 0;
+
+unlock:
+  if (tp)
+    iunlock(tp);
+  iunlock(ip);
+  if (second != first)
+    iunlock(second);
+  iunlock(first);
+done:
+  if (tp)
+    iput(tp);
+  if (ip)
+    iput(ip);
+  if (ndp)
+    iput(ndp);
+  if (odp)
+    iput(odp);
+  end_op();
+  fs_mutation_release();
+  return result;
 }
 
 uint64
@@ -216,9 +361,11 @@ sys_unlink(void)
   if (argstr(0, path, MAXPATH) < 0)
     return -1;
 
+  fs_mutation_acquire();
   begin_op();
   if ((dp = nameiparent(path, name)) == 0) {
     end_op();
+    fs_mutation_release();
     return -1;
   }
 
@@ -253,12 +400,14 @@ sys_unlink(void)
   iunlockput(ip);
 
   end_op();
+  fs_mutation_release();
 
   return 0;
 
 bad:
   iunlockput(dp);
   end_op();
+  fs_mutation_release();
   return -1;
 }
 
@@ -410,13 +559,16 @@ sys_mkdir(void)
   char path[MAXPATH];
   struct inode *ip;
 
+  fs_mutation_acquire();
   begin_op();
   if (argstr(0, path, MAXPATH) < 0 || (ip = create(path, T_DIR, 0, 0)) == 0) {
     end_op();
+    fs_mutation_release();
     return -1;
   }
   iunlockput(ip);
   end_op();
+  fs_mutation_release();
   return 0;
 }
 
@@ -427,16 +579,19 @@ sys_mknod(void)
   char path[MAXPATH];
   int major, minor;
 
+  fs_mutation_acquire();
   begin_op();
   argint(1, &major);
   argint(2, &minor);
   if ((argstr(0, path, MAXPATH)) < 0 ||
       (ip = create(path, T_DEVICE, major, minor)) == 0) {
     end_op();
+    fs_mutation_release();
     return -1;
   }
   iunlockput(ip);
   end_op();
+  fs_mutation_release();
   return 0;
 }
 
