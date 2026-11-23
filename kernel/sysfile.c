@@ -336,7 +336,7 @@ uint64
 sys_open(void)
 {
   char path[MAXPATH];
-  int fd, omode;
+  int fd = -1, omode;
   struct file *f;
   struct inode *ip;
   int n;
@@ -345,39 +345,37 @@ sys_open(void)
   if ((n = argstr(0, path, MAXPATH)) < 0)
     return -1;
 
+  int mutating = (omode & (O_CREATE | O_TRUNC)) != 0;
+  if (mutating)
+    fs_mutation_acquire();
   begin_op();
 
   if (omode & O_CREATE) {
     ip = create(path, T_FILE, 0, 0);
     if (ip == 0) {
-      end_op();
-      return -1;
+      goto done;
     }
   } else {
     if ((ip = namei(path)) == 0) {
-      end_op();
-      return -1;
+      goto done;
     }
     ilock(ip);
     if (ip->type == T_DIR && omode != O_RDONLY) {
       iunlockput(ip);
-      end_op();
-      return -1;
+      goto done;
     }
   }
 
   if (ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)) {
     iunlockput(ip);
-    end_op();
-    return -1;
+    goto done;
   }
 
   if ((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0) {
     if (f)
       fileclose(f);
     iunlockput(ip);
-    end_op();
-    return -1;
+    goto done;
   }
 
   if (ip->type == T_DEVICE) {
@@ -399,8 +397,10 @@ sys_open(void)
   }
 
   iunlock(ip);
+done:
   end_op();
-
+  if (mutating)
+    fs_mutation_release();
   return fd;
 }
 

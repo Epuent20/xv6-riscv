@@ -152,6 +152,9 @@ filewrite(struct file *f, uint64 addr, int n)
     // and 2 blocks of slop for non-aligned writes.
     int max = ((MAXOPBLOCKS - 1 - 1 - 2) / 2) * BSIZE;
     int i = 0;
+
+    // Serialize the entire inode write across all log chunks.
+    fs_mutation_acquire();
     while (i < n) {
       int n1 = n - i;
       if (n1 > max)
@@ -173,6 +176,7 @@ filewrite(struct file *f, uint64 addr, int n)
       }
       i += r;
     }
+    fs_mutation_release();
     ret = (i == n ? n : -1);
   } else {
     panic("filewrite");
