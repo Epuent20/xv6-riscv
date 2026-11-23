@@ -198,6 +198,13 @@ isdirempty(struct inode *dp)
   return 1;
 }
 
+// Temporary handler until PA5 atomic rename is implemented.
+uint64
+sys_rename(void)
+{
+  return -1;
+}
+
 uint64
 sys_unlink(void)
 {

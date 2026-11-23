@@ -33,6 +33,7 @@ entry("exec");
 entry("open");
 entry("mknod");
 entry("unlink");
+entry("rename");
 entry("fstat");
 entry("link");
 entry("mkdir");
